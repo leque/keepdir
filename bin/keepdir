@@ -1,0 +1,234 @@
+#!/usr/bin/env ruby
+#
+# Copyright (c) 2015 OOHASHI Daichi,
+# All rights reserved.
+#
+# Redistribution and use in source and binary forms, with or without
+# modification, are permitted provided that the following conditions
+# are met:
+#
+# 1. Redistributions of source code must retain the above copyright
+#    notice, this list of conditions and the following disclaimer.
+#
+# 2. Redistributions in binary form must reproduce the above copyright
+#    notice, this list of conditions and the following disclaimer in the
+#    documentation and/or other materials provided with the distribution.
+#
+# 3. Neither the name of the authors nor the names of its contributors
+#    may be used to endorse or promote products derived from this
+#    software without specific prior written permission.
+#
+# THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
+# "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
+# LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
+# A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
+# OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
+# SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED
+# TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR
+# PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF
+# LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING
+# NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
+# SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+#
+require 'optparse'
+require 'ostruct'
+require 'pathname'
+require 'shellwords'
+
+class Keepdir
+   VERSION = '0.1'
+
+   def self.default_flags
+      {
+         update: true,
+         purge: false,
+         create_hook: [],
+         delete_hook: [],
+         dry_run: false,
+         interactive: false,
+         keepfile: '.keep',
+         prune: %w(.git .hg .svn CVS _darcs).sort,
+         replace: nil,
+         quiet: false
+      }
+   end
+
+   def initialize(flags)
+      @flags = flags
+   end
+
+   def run(path)
+      if @flags.purge and keepfile?(path) then
+         delete(path)
+      elsif path.directory? and
+           not @flags.prune.include?(path.basename.to_s) then
+         children = path.children
+         if @flags.update and children.empty? then
+            create(path.join(@flags.keepfile))
+         elsif @flags.update and
+               children.size > 1 and
+               keepfile?(children.first) then
+            delete(children.first)
+         end
+
+         children.each do |ch|
+            run(ch)
+         end
+      end
+   end
+
+   def keepfile?(path)
+      path.file? and path.basename.to_s == @flags.keepfile
+   end
+
+   private
+   def create(path)
+      try("create #{path}") do
+         path.open('w') {|w| nil }
+         run_hooks(@flags.create_hook, path)
+      end
+   end
+
+   def delete(path)
+      try("delete #{path}") do
+         path.delete
+         run_hooks(@flags.delete_hook, path)
+      end
+   end
+
+   def run_hooks(hooks, path)
+      hooks.each do |hook|
+         system add_arg(hook, path)
+      end
+   end
+
+   def add_arg(hook, path)
+      arg = Shellwords.escape(path.to_s)
+      if @flags.replace then
+         hook.sub(@flags.replace, arg)
+      else
+         "%s %s" % [hook, arg]
+      end
+   end
+
+   def try(msg, &block)
+      if @flags.dry_run then
+         message(msg)
+      elsif not @flags.interactive or y_or_n(msg + '? ') then
+         message(msg)
+         yield block
+      end
+   end
+
+   def message(msg)
+      unless @flags.quiet then
+         $stdout.puts msg
+      end
+   end
+
+   def y_or_n(msg)
+      $stdout.print(msg)
+      $stdout.flush
+
+      line = $stdin.gets
+      case line and line.strip.downcase
+      when nil then
+         exit 0
+      when 'y' then
+         true
+      else
+         false
+      end
+   end
+end
+
+if $0 == __FILE__ then
+   flag_spec = Keepdir.default_flags
+   flags = OpenStruct.new(flag_spec)
+   opt = OptionParser.new
+   opt.summary_width = 24
+   opt.banner =
+      'usage: %s [[--update] | --purge] [options] [<dir>]' % opt.program_name
+   opt.version = Keepdir::VERSION
+
+   opt.on('--update', 'create/delete keepfiles if necessary (default)') {
+      flags.update = true
+      flags.purge = false
+   }
+
+   opt.on('--purge', 'delete all keepfiles under <dir>') {
+      flags.update = false
+      flags.purge = true
+   }
+
+   opt.on('-i', '--interactive', 'interactive creating/deleting') {
+      flags.interactive = true
+   }
+
+   opt.on('-k FILENAME', '--keepfile=FILENAME',
+          "name of keepfile (default `#{flag_spec[:keepfile]}')") {|v|
+      flags.keepfile = v
+   }
+
+   opt.on('-n', '--dry-run', 'dry run') {
+      flags.dry_run = true
+   }
+
+   opt.on('-p DIRECTORY', '--prune=DIRECTORY',
+          'do not descend into the specified directory',
+          '(default %s)' %
+          flag_spec[:prune].collect{|f| "`%s'" % f }.join(', ')) {|v|
+      flags.prune.push(v)
+   }
+
+   opt.on('-P', '--no-prune', 'clear prune list') {
+      flags.prune = []
+   }
+
+   opt.on('-q', '--quiet',
+          'do not print names of files created/deleted') {
+      flags.quiet = true
+   }
+
+   opt.on('-C CMD', '--create-hook=CMD',
+          'add command called after creating keepfile') {|v|
+      flags.create_hook.push(v)
+   }
+
+   opt.on('-D CMD', '--delete-hook=CMD',
+          'add command called after deleting keepfile') {|v|
+      flags.delete_hook.push(v)
+   }
+
+   opt.on('-R REPLSTR', '--replace=REPLSTR',
+          'replace the first occurence of REPLSTR',
+          'in an argument of -C or -D',
+          'with a name of keepfile created/deleted',
+          'instead of appending it to the argument.',
+          'This option can be specified only once.') {|v|
+      if flags.replace and v != flags.replace then
+         $stderr.printf(
+            "%s: -R: cannot change REPLSTR from `%s' to `%s'.\n",
+            opt.program_name, flags.replace, v)
+         exit 1
+      end
+
+      if v.empty? then
+         $stderr.printf("%s: -R: REPLSTR cannot be empty.\n", opt.program_name)
+         exit 1
+      end
+
+      flags.replace = v
+   }
+
+   opt.order!(ARGV)
+
+   if ARGV.length > 1 then
+      $stderr.puts opt
+      exit 1
+   end
+
+   path = Pathname.new(ARGV.first || '.').expand_path
+   Keepdir.new(flags).run(path)
+   exit 0
+end
