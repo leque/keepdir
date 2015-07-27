@@ -12,6 +12,8 @@ Yet another script to create so-called `.keep` (`.gitkeep`, `.emptydir` or
 
 Copy `bin/keepdir` to a directory in the `PATH`.
 
+`bin/gitkeep` might be useful for `git` users.
+
 ## Usage
 
 See `keepdir --help`.

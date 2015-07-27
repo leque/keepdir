@@ -1,0 +1,7 @@
+#!/bin/sh
+keepdir \
+    --replace='%%%' \
+    --create-hook='git add %%%' \
+    --delete-hook='git add -A %%%' \
+    --exclude='git ls-files --ignored --others --directory --exclude-standard' \
+    "$@"
