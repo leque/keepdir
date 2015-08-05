@@ -31,6 +31,7 @@
 # SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #
 require 'optparse'
+require 'open3'
 require 'ostruct'
 require 'pathname'
 require 'shellwords'
@@ -44,6 +45,7 @@ class Keepdir
          purge: false,
          create_hook: [],
          delete_hook: [],
+         exclude: [],
          dry_run: false,
          interactive: false,
          keepfile: '.keep',
@@ -61,6 +63,7 @@ class Keepdir
       if @flags.purge and keepfile?(path) then
          delete(path)
       elsif path.directory? and
+           not @flags.exclude.include?(path) and
            not @flags.prune.include?(path.basename.to_s) then
          children = path.children
          if @flags.update and children.empty? then
@@ -188,6 +191,19 @@ if $0 == __FILE__ then
    opt.on('-q', '--quiet',
           'do not print names of files created/deleted') {
       flags.quiet = true
+   }
+
+   opt.on('-x CMD', '--exclude=CMD',
+          'do not descend into paths which CMD outputs.',
+          'Paths are separated by newline.') {|v|
+      _stdin, stdout, stderr, th = Open3.popen3(v)
+      if th.value == 0 then
+         flags.exclude.concat(
+            stdout.each_line.collect {|l| Pathname.new(l.chomp).expand_path })
+      else
+         IO.copy_stream(stderr, $stderr)
+         exit 1
+      end
    }
 
    opt.on('-C CMD', '--create-hook=CMD',

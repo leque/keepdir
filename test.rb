@@ -3,6 +3,7 @@ require 'minitest/autorun'
 require 'fileutils'
 require 'open3'
 require 'tmpdir'
+require 'tempfile'
 
 KEEPDIR = File.expand_path('../bin/keepdir', __FILE__)
 
@@ -326,6 +327,45 @@ EOF
 
       it 'is error to specify empty REPLSTR' do
          keepdir_status('--replace=').must_be :!=, 0
+      end
+   end
+
+   describe '--exclude' do
+      it 'must exclude directories in command output' do
+         keepdir '--exclude=echo a/b'
+         File.exist?(testpath('a/b/c/.keep')).must_equal false
+         File.exist?(testpath('a/d/.keep')).must_equal true
+         File.exist?(testpath('a/e/.keep')).must_equal true
+      end
+
+      it 'must interpret paths relative to .' do
+         keepdir '--exclude=echo b'
+         File.exist?(testpath('a/b/c/.keep')).must_equal true
+         File.exist?(testpath('a/d/.keep')).must_equal true
+         File.exist?(testpath('a/e/.keep')).must_equal true
+      end
+
+      it 'must accept absolute paths' do
+         keepdir "--exclude=echo #{testpath('a/b')}"
+         File.exist?(testpath('a/b/c/.keep')).must_equal false
+         File.exist?(testpath('a/d/.keep')).must_equal true
+         File.exist?(testpath('a/e/.keep')).must_equal true
+      end
+
+      it 'must accept lines of paths' do
+         tf = begin
+                 tf = Tempfile.new("test.exclude")
+                 tf.puts testpath('a/b')
+                 tf.puts 'a/d'
+                 tf.puts 'e'
+                 tf
+              ensure
+                 tf.close
+              end
+         keepdir "--exclude=cat #{tf.path}"
+         File.exist?(testpath('a/b/c/.keep')).must_equal false
+         File.exist?(testpath('a/d/.keep')).must_equal false
+         File.exist?(testpath('a/e/.keep')).must_equal true
       end
    end
 
