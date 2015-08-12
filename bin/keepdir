@@ -39,6 +39,14 @@ require 'shellwords'
 class Keepdir
    VERSION = '0.1'
 
+   class Exit < StandardError
+      attr_reader :status
+      def initialize(status, message = nil)
+         super(message)
+         @status = status
+      end
+   end
+
    def self.default_flags
       {
          update: true,
@@ -101,7 +109,11 @@ class Keepdir
 
    def run_hooks(hooks, path)
       hooks.each do |hook|
-         system add_arg(hook, path)
+         begin
+            _pid, _st = Process.waitpid2(spawn(add_arg(hook, path)))
+         rescue SystemCallError => e then
+            $stderr.printf "%s: %s\n", hook, e.message
+         end
       end
    end
 
@@ -136,7 +148,7 @@ class Keepdir
       line = $stdin.gets
       case line and line.strip.downcase
       when nil then
-         exit 0
+         raise Exit.new(0)
       when 'y' then
          true
       else
@@ -146,104 +158,113 @@ class Keepdir
 end
 
 if $0 == __FILE__ then
-   flag_spec = Keepdir.default_flags
-   flags = OpenStruct.new(flag_spec)
-   opt = OptionParser.new
-   opt.summary_width = 24
-   opt.banner =
-      'usage: %s [[--update] | --purge] [options] [<dir>]' % opt.program_name
-   opt.version = Keepdir::VERSION
+   begin
+      flag_spec = Keepdir.default_flags
+      flags = OpenStruct.new(flag_spec)
+      opt = OptionParser.new
+      opt.summary_width = 24
+      opt.banner =
+         'usage: %s [[--update] | --purge] [options] [<dir>]' % opt.program_name
+      opt.version = Keepdir::VERSION
 
-   opt.on('--update', 'create/delete keepfiles if necessary (default)') {
-      flags.update = true
-      flags.purge = false
-   }
+      opt.on('--update', 'create/delete keepfiles if necessary (default)') {
+         flags.update = true
+         flags.purge = false
+      }
 
-   opt.on('--purge', 'delete all keepfiles under <dir>') {
-      flags.update = false
-      flags.purge = true
-   }
+      opt.on('--purge', 'delete all keepfiles under <dir>') {
+         flags.update = false
+         flags.purge = true
+      }
 
-   opt.on('-i', '--interactive', 'interactive creating/deleting') {
-      flags.interactive = true
-   }
+      opt.on('-i', '--interactive', 'interactive creating/deleting') {
+         flags.interactive = true
+      }
 
-   opt.on('-k FILENAME', '--keepfile=FILENAME',
-          "name of keepfile (default `#{flag_spec[:keepfile]}')") {|v|
-      flags.keepfile = v
-   }
+      opt.on('-k FILENAME', '--keepfile=FILENAME',
+             "name of keepfile (default `#{flag_spec[:keepfile]}')") {|v|
+         flags.keepfile = v
+      }
 
-   opt.on('-n', '--dry-run', 'dry run') {
-      flags.dry_run = true
-   }
+      opt.on('-n', '--dry-run', 'dry run') {
+         flags.dry_run = true
+      }
 
-   opt.on('-p DIRECTORY', '--prune=DIRECTORY',
-          'do not descend into the specified directory',
-          '(default %s)' %
-          flag_spec[:prune].collect{|f| "`%s'" % f }.join(', ')) {|v|
-      flags.prune.push(v)
-   }
+      opt.on('-p DIRECTORY', '--prune=DIRECTORY',
+             'do not descend into the specified directory',
+             '(default %s)' %
+             flag_spec[:prune].collect{|f| "`%s'" % f }.join(', ')) {|v|
+         flags.prune.push(v)
+      }
 
-   opt.on('-P', '--no-prune', 'clear prune list') {
-      flags.prune = []
-   }
+      opt.on('-P', '--no-prune', 'clear prune list') {
+         flags.prune = []
+      }
 
-   opt.on('-q', '--quiet',
-          'do not print names of files created/deleted') {
-      flags.quiet = true
-   }
+      opt.on('-q', '--quiet',
+             'do not print names of files created/deleted') {
+         flags.quiet = true
+      }
 
-   opt.on('-x CMD', '--exclude=CMD',
-          'do not descend into paths which CMD outputs.',
-          'Paths are separated by newline.') {|v|
-      stdout, st = Open3.capture2(v)
-      if st.success? then
-         flags.exclude.concat(
-            stdout.each_line.collect {|l| Pathname.new(l.chomp).expand_path })
-      else
-         exit 1
+      opt.on('-x CMD', '--exclude=CMD',
+             'do not descend into paths which CMD outputs.',
+             'Paths are separated by newline.') {|v|
+         stdout, st = Open3.capture2(v)
+         if st.success? then
+            flags.exclude.concat(
+               stdout.each_line.collect {|l| Pathname.new(l.chomp).expand_path })
+         else
+            raise Keepdir::Exit.new(1, 'error while running: ' + v)
+         end
+      }
+
+      opt.on('-C CMD', '--create-hook=CMD',
+             'add command called after creating keepfile') {|v|
+         flags.create_hook.push(v)
+      }
+
+      opt.on('-D CMD', '--delete-hook=CMD',
+             'add command called after deleting keepfile') {|v|
+         flags.delete_hook.push(v)
+      }
+
+      opt.on('-R REPLSTR', '--replace=REPLSTR',
+             'replace the first occurence of REPLSTR',
+             'in an argument of -C or -D',
+             'with a name of keepfile created/deleted',
+             'instead of appending it to the argument.',
+             'This option can be specified only once.') {|v|
+         if flags.replace and v != flags.replace then
+            raise Keepdir::Exit.new(
+                     1,
+                     sprintf(
+                        "-R: cannot change REPLSTR from `%s' to `%s'.",
+                        flags.replace, v))
+         end
+
+         if v.empty? then
+            raise Keepdir::Exit.new(1, '-R: REPLSTR cannot be empty.')
+         end
+
+         flags.replace = v
+      }
+
+      opt.order!(ARGV)
+
+      if ARGV.length > 1 then
+         raise Keepdir::Exit.new(1, opt)
       end
-   }
 
-   opt.on('-C CMD', '--create-hook=CMD',
-          'add command called after creating keepfile') {|v|
-      flags.create_hook.push(v)
-   }
-
-   opt.on('-D CMD', '--delete-hook=CMD',
-          'add command called after deleting keepfile') {|v|
-      flags.delete_hook.push(v)
-   }
-
-   opt.on('-R REPLSTR', '--replace=REPLSTR',
-          'replace the first occurence of REPLSTR',
-          'in an argument of -C or -D',
-          'with a name of keepfile created/deleted',
-          'instead of appending it to the argument.',
-          'This option can be specified only once.') {|v|
-      if flags.replace and v != flags.replace then
-         $stderr.printf(
-            "%s: -R: cannot change REPLSTR from `%s' to `%s'.\n",
-            opt.program_name, flags.replace, v)
-         exit 1
+      path = Pathname.new(ARGV.first || '.').expand_path
+      Keepdir.new(flags).run(path)
+      exit 0
+   rescue Keepdir::Exit => e then
+      if e.message then
+         $stderr.printf "%s: %s\n", opt.program_name, e.message
       end
-
-      if v.empty? then
-         $stderr.printf("%s: -R: REPLSTR cannot be empty.\n", opt.program_name)
-         exit 1
-      end
-
-      flags.replace = v
-   }
-
-   opt.order!(ARGV)
-
-   if ARGV.length > 1 then
-      $stderr.puts opt
+      exit e.status
+   rescue SystemCallError => e then
+      $stderr.printf "%s: %s\n", opt.program_name, e.message
       exit 1
    end
-
-   path = Pathname.new(ARGV.first || '.').expand_path
-   Keepdir.new(flags).run(path)
-   exit 0
 end
