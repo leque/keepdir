@@ -196,12 +196,11 @@ if $0 == __FILE__ then
    opt.on('-x CMD', '--exclude=CMD',
           'do not descend into paths which CMD outputs.',
           'Paths are separated by newline.') {|v|
-      _stdin, stdout, stderr, th = Open3.popen3(v)
-      if th.value == 0 then
+      stdout, st = Open3.capture2(v)
+      if st.success? then
          flags.exclude.concat(
             stdout.each_line.collect {|l| Pathname.new(l.chomp).expand_path })
       else
-         IO.copy_stream(stderr, $stderr)
          exit 1
       end
    }
