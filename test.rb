@@ -16,6 +16,10 @@ def subdirs
    ]
 end
 
+def touch(path)
+   open(path, 'w') {|w| nil }
+end
+
 def keepdir(*args)
    Dir.chdir($tmpdir) {
       _stdin, stdout, _stderr, th = Open3.popen3(KEEPDIR, *args)
@@ -87,6 +91,15 @@ EOF
 
       it 'must suppress output with -q' do
          keepdir('-q').lines.must_be :empty?
+      end
+
+      it 'must delete a keepfile if it exists in an non-empty directory' do
+         touch(testpath('a/b/c/.aaa'))
+         touch(testpath('a/b/c/.keep'))
+         keepdir
+         File.exist?(testpath('a/b/c/.keep')).must_equal false
+         File.exist?(testpath('a/d/.keep')).must_equal true
+         File.exist?(testpath('a/e/.keep')).must_equal true
       end
 
       it 'must not create keepfiles for non-empty directories' do

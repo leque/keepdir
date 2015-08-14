@@ -77,9 +77,13 @@ class Keepdir
          if @flags.update and children.empty? then
             create(path.join(@flags.keepfile))
          elsif @flags.update and
-               children.size > 1 and
-               keepfile?(children.first) then
-            delete(children.first)
+               children.size > 1 then
+            children.each do |c|
+               if keepfile?(c) then
+                  delete(c)
+                  break
+               end
+            end
          end
 
          children.each do |ch|
