@@ -1,4 +1,4 @@
-# Keepdir
+# Keepdir [![Build Status](https://travis-ci.org/leque/keepdir.svg?branch=master)](https://travis-ci.org/leque/keepdir)
 
 Yet another script to create so-called `.keep` (`.gitkeep`, `.emptydir` or
 `.something-you-like`) files in all empty directories.
