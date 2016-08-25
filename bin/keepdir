@@ -1,6 +1,6 @@
 #!/usr/bin/env ruby
 #
-# Copyright (c) 2015 OOHASHI Daichi,
+# Copyright (c) 2015, 2016 OOHASHI Daichi,
 # All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
@@ -112,19 +112,19 @@ class Keepdir
    end
 
    def run_hooks(hooks, path)
-      hooks.each do |hook|
+      hooks.each do |(hook, replace)|
          begin
-            _pid, _st = Process.waitpid2(spawn(add_arg(hook, path)))
+            _pid, _st = Process.waitpid2(spawn(add_arg(hook, replace, path)))
          rescue SystemCallError => e then
             $stderr.printf "%s: %s\n", hook, e.message
          end
       end
    end
 
-   def add_arg(hook, path)
+   def add_arg(hook, replace, path)
       arg = Shellwords.escape(path.to_s)
-      if @flags.replace then
-         hook.sub(@flags.replace, arg)
+      if replace then
+         hook.sub(replace, arg)
       else
          "%s %s" % [hook, arg]
       end
@@ -224,28 +224,20 @@ if $0 == __FILE__ then
 
       opt.on('-C CMD', '--create-hook=CMD',
              'add command called after creating keepfile') {|v|
-         flags.create_hook.push(v)
+         flags.create_hook.push([v, flags.replace])
       }
 
       opt.on('-D CMD', '--delete-hook=CMD',
              'add command called after deleting keepfile') {|v|
-         flags.delete_hook.push(v)
+         flags.delete_hook.push([v, flags.replace])
       }
 
       opt.on('-R REPLSTR', '--replace=REPLSTR',
              'replace the first occurence of REPLSTR',
              'in an argument of -C or -D',
              'with a name of keepfile created/deleted',
-             'instead of appending it to the argument.',
-             'This option can be specified only once.') {|v|
-         if flags.replace and v != flags.replace then
-            raise Keepdir::Exit.new(
-                     1,
-                     sprintf(
-                        "-R: cannot change REPLSTR from `%s' to `%s'.",
-                        flags.replace, v))
-         end
-
+             'instead of appending it to the argument.'
+            ) {|v|
          if v.empty? then
             raise Keepdir::Exit.new(1, '-R: REPLSTR cannot be empty.')
          end

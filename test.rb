@@ -365,8 +365,8 @@ delete #{testpath('a/e/.keep')}
 EOF
       end
 
-      it 'cannot change REPLSTR' do
-         keepdir_status('--replace=%', '--replace=+').must_be :!=, 0
+      it 'can change REPLSTR' do
+         keepdir_status('--replace=%', '--replace=+').must_be :==, 0
       end
 
       it 'is ok to specify same REPLSTR' do
@@ -375,6 +375,50 @@ EOF
 
       it 'is error to specify empty REPLSTR' do
          keepdir_status('--replace=').must_be :!=, 0
+      end
+
+      it 'must resolve REPLSTR lexically' do
+         keepdir('--update',
+                 '--create-hook=echo %+',
+                 '--replace=%',
+                 '--create-hook=echo %+',
+                 '--replace=+',
+                 '--create-hook=echo %+'
+                ).must_equal <<EOF
+create #{testpath('a/b/c/.keep')}
+%+ #{testpath('a/b/c/.keep')}
+#{testpath('a/b/c/.keep')}+
+%#{testpath('a/b/c/.keep')}
+create #{testpath('a/d/.keep')}
+%+ #{testpath('a/d/.keep')}
+#{testpath('a/d/.keep')}+
+%#{testpath('a/d/.keep')}
+create #{testpath('a/e/.keep')}
+%+ #{testpath('a/e/.keep')}
+#{testpath('a/e/.keep')}+
+%#{testpath('a/e/.keep')}
+EOF
+
+         keepdir('--purge',
+                 '--delete-hook=echo %+',
+                 '--replace=%',
+                 '--delete-hook=echo %+',
+                 '--replace=+',
+                 '--delete-hook=echo %+'
+                ).must_equal <<EOF
+delete #{testpath('a/b/c/.keep')}
+%+ #{testpath('a/b/c/.keep')}
+#{testpath('a/b/c/.keep')}+
+%#{testpath('a/b/c/.keep')}
+delete #{testpath('a/d/.keep')}
+%+ #{testpath('a/d/.keep')}
+#{testpath('a/d/.keep')}+
+%#{testpath('a/d/.keep')}
+delete #{testpath('a/e/.keep')}
+%+ #{testpath('a/e/.keep')}
+#{testpath('a/e/.keep')}+
+%#{testpath('a/e/.keep')}
+EOF
       end
    end
 
