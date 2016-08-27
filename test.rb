@@ -277,6 +277,41 @@ delete #{testpath('a/e/.keep')}
 - #{testpath('a/e/.keep')}
 EOF
       end
+
+      it 'must be called first-specified-first' do
+         keepdir('--update',
+                 '--create-hook=echo 1.',
+                 '--create-hook=echo 2.',
+                 '--delete-hook=echo 1.',
+                 '--delete-hook=echo 2.'
+                ).must_equal <<EOF
+create #{testpath('a/b/c/.keep')}
+1. #{testpath('a/b/c/.keep')}
+2. #{testpath('a/b/c/.keep')}
+create #{testpath('a/d/.keep')}
+1. #{testpath('a/d/.keep')}
+2. #{testpath('a/d/.keep')}
+create #{testpath('a/e/.keep')}
+1. #{testpath('a/e/.keep')}
+2. #{testpath('a/e/.keep')}
+EOF
+         keepdir('--purge',
+                 '--create-hook=echo 1.',
+                 '--create-hook=echo 2.',
+                 '--delete-hook=echo 1.',
+                 '--delete-hook=echo 2.'
+                ).must_equal <<EOF
+delete #{testpath('a/b/c/.keep')}
+1. #{testpath('a/b/c/.keep')}
+2. #{testpath('a/b/c/.keep')}
+delete #{testpath('a/d/.keep')}
+1. #{testpath('a/d/.keep')}
+2. #{testpath('a/d/.keep')}
+delete #{testpath('a/e/.keep')}
+1. #{testpath('a/e/.keep')}
+2. #{testpath('a/e/.keep')}
+EOF
+      end
    end
 
    describe '--replace' do
