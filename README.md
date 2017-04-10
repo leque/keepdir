@@ -5,7 +5,7 @@ Yet another script to create so-called `.keep` (`.gitkeep`, `.emptydir` or
 
 ## Requirement
 
-* Ruby 2.0.0 or later
+* Ruby 2.2.0 or later (might run on 2.0 or 2.1)
 * minitest (for testing)
 
 ## Install
