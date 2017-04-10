@@ -3,5 +3,6 @@ keepdir \
     --replace='%%%' \
     --create-hook='git add %%%' \
     --delete-hook='git add -A %%%' \
+    --replace '' \
     --exclude='git ls-files --ignored --others --directory --exclude-standard' \
     "$@"
